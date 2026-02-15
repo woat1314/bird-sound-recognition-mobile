@@ -1,0 +1,12 @@
+birdnetlib
+numpy
+scipy
+soundfile
+streamlit-audiorecorder
+pydub
+deep_translator
+streamlit
+tensorflow
+librosa
+requests
+duckduckgo_search
