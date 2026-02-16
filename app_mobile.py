@@ -4,6 +4,8 @@ import time
 from audiorecorder import audiorecorder
 from analyze_audio import analyze_audio
 from image_utils import get_bird_image_url
+import io
+from pydub import AudioSegment
 
 # Page configuration
 st.set_page_config(
@@ -25,6 +27,9 @@ with st.sidebar:
     # Lowered default confidence for better initial experience
     min_conf = st.slider("最低置信度", min_value=0.1, max_value=0.9, value=0.10, step=0.05)
     
+    st.subheader("音频增强")
+    gain_boost = st.slider("音量增强 (dB)", min_value=0, max_value=30, value=0, help="如果录音声音太小，可以尝试增加此值")
+    
     st.subheader("位置信息 (可选)")
     use_location = st.checkbox("启用位置辅助", value=True)
     lat = st.number_input("纬度 (Latitude)", value=39.9, disabled=not use_location)
@@ -33,28 +38,72 @@ with st.sidebar:
 # Main interface
 col1, col2 = st.columns([1, 2])
 
-with col1:
-    st.subheader("1. 录制声音")
-    st.info("点击下方按钮开始录音，再次点击结束。")
-    
-    # Browser-based audio recorder
-    # audiorecorder(start_msg, recording_msg)
-    audio = audiorecorder("🎙️ 点击开始", "⏹️ 点击停止")
+output_file = "bird_sound_mobile.wav"
 
-    if len(audio) > 0:
-        # Save audio to file
-        output_file = "bird_sound_mobile.wav"
-        # Export to wav format using pydub
-        audio.export(output_file, format="wav")
+with col1:
+    st.subheader("1. 获取声音")
+    
+    # Tabs for input method
+    tab1, tab2 = st.tabs(["🎙️ 在线录音", "📂 上传文件"])
+    
+    with tab1:
+        st.info("点击下方按钮开始录音，再次点击结束。")
+        # Browser-based audio recorder
+        audio = audiorecorder("🎙️ 点击开始", "⏹️ 点击停止")
+
+        if len(audio) > 0:
+            # Apply gain if needed
+            if gain_boost > 0:
+                audio = audio + gain_boost
+                st.info(f"已应用 {gain_boost}dB 音量增强")
+            
+            # Export to wav format using pydub
+            audio.export(output_file, format="wav")
+            
+            st.success(f"录音完成! 时长: {audio.duration_seconds:.1f}秒")
+            
+            # Save state
+            st.session_state['audio_file_mobile'] = output_file
+            st.session_state['has_recording_mobile'] = True
+            
+            # Playback
+            try:
+                audio_bytes = audio.export(format="wav").read()
+                st.audio(audio_bytes, format='audio/wav')
+            except Exception as e:
+                st.error(f"播放失败: {e}")
+
+    with tab2:
+        st.info("推荐使用手机自带的高质量录音机录制，然后在此上传。")
+        uploaded_file = st.file_uploader("选择音频文件", type=['wav', 'mp3', 'm4a', 'ogg'])
         
-        st.success(f"录音完成! 时长: {audio.duration_seconds:.1f}秒")
-        
-        # Save state
-        st.session_state['audio_file_mobile'] = output_file
-        st.session_state['has_recording_mobile'] = True
-        
-        # Playback
-        st.audio(audio.export().read())
+        if uploaded_file is not None:
+            with st.spinner("正在处理音频文件..."):
+                try:
+                    # Load audio with pydub
+                    # pydub handles format conversion automatically if ffmpeg is installed
+                    audio_segment = AudioSegment.from_file(uploaded_file)
+                    
+                    # Apply gain if needed
+                    if gain_boost > 0:
+                        audio_segment = audio_segment + gain_boost
+                        st.info(f"已应用 {gain_boost}dB 音量增强")
+                    
+                    # Export to standardized wav
+                    audio_segment.export(output_file, format="wav")
+                    
+                    st.success(f"文件上传成功! 时长: {audio_segment.duration_seconds:.1f}秒")
+                    
+                    # Save state
+                    st.session_state['audio_file_mobile'] = output_file
+                    st.session_state['has_recording_mobile'] = True
+                    
+                    # Playback
+                    st.audio(uploaded_file)
+                    
+                except Exception as e:
+                    st.error(f"处理文件失败: {e}")
+                    st.error("提示: 确保服务器已安装 ffmpeg 以支持 mp3/m4a 格式。")
 
 # Analysis section
 if st.session_state.get('has_recording_mobile'):
@@ -72,7 +121,7 @@ if st.session_state.get('has_recording_mobile'):
             
             if not detections:
                 st.warning(f"未检测到明显的鸟叫声 (阈值: {min_conf})。")
-                st.markdown("建议：\n1. 调低左侧的置信度阈值\n2. 靠近麦克风播放清晰的鸟叫声")
+                st.markdown("建议：\n1. 尝试使用**“上传文件”**功能，上传手机原生录音机录制的高清音频。\n2. 增加左侧的**“音量增强”**滑块。\n3. 调低**“最低置信度”**。")
             else:
                 st.success(f"检测到 {len(detections)} 个结果！")
                 
